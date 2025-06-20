@@ -38,7 +38,7 @@ void app_main(void)
 
             if (target.detected)
             {
-                ESP_LOGI(TAG, "Target detected - X: %.2f, Y: %.2f, Speed: %.2f, Distance: %.2f, Angle: %.2f°",
+                ESP_LOGI(TAG, "Target detected - X: %.2f mm, Y: %.2f mm, Speed: %.2f cm/s, Distance: %.2f mm, Angle: %.2f°",
                          target.x, target.y, target.speed, target.distance, target.angle);
             }
             else
