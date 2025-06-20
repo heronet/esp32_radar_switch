@@ -29,6 +29,9 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Radar sensor initialized successfully");
 
+    gpio_reset_pin(GPIO_NUM_16);
+    gpio_set_direction(GPIO_NUM_16, GPIO_MODE_OUTPUT);
+
     while (1)
     {
         // Update radar sensor
@@ -40,10 +43,13 @@ void app_main(void)
             {
                 ESP_LOGI(TAG, "Target detected - X: %.2f mm, Y: %.2f mm, Speed: %.2f cm/s, Distance: %.2f mm, Angle: %.2f°",
                          target.x, target.y, target.speed, target.distance, target.angle);
+
+                gpio_set_level(GPIO_NUM_16, 1);
             }
             else
             {
                 ESP_LOGI(TAG, "No target detected");
+                gpio_set_level(GPIO_NUM_16, 0);
             }
         }
 
