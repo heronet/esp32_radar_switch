@@ -10,8 +10,8 @@ void app_main(void)
 {
     radar_sensor_t radar_sensor;
 
-    // Initialize radar sensor on UART1 with RX pin 14, TX pin 13
-    esp_err_t ret = radar_sensor_init(&radar_sensor, UART_NUM_1, GPIO_NUM_14, GPIO_NUM_13);
+    // Initialize radar sensor on UART1 with RX pin 6, TX pin 5
+    esp_err_t ret = radar_sensor_init(&radar_sensor, UART_NUM_1, GPIO_NUM_6, GPIO_NUM_5);
     if (ret != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initialize radar sensor: %s", esp_err_to_name(ret));
@@ -28,10 +28,7 @@ void app_main(void)
     }
 
     ESP_LOGI(TAG, "Radar sensor initialized successfully");
-
-    gpio_reset_pin(GPIO_NUM_16);
-    gpio_set_direction(GPIO_NUM_16, GPIO_MODE_OUTPUT);
-
+    gpio_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
     while (1)
     {
         // Update radar sensor
@@ -43,13 +40,12 @@ void app_main(void)
             {
                 ESP_LOGI(TAG, "Target detected - X: %.2f mm, Y: %.2f mm, Speed: %.2f cm/s, Distance: %.2f mm, Angle: %.2f°",
                          target.x, target.y, target.speed, target.distance, target.angle);
-
-                gpio_set_level(GPIO_NUM_16, 1);
+                gpio_set_level(GPIO_NUM_1, 1);
             }
             else
             {
                 ESP_LOGI(TAG, "No target detected");
-                gpio_set_level(GPIO_NUM_16, 0);
+                gpio_set_level(GPIO_NUM_1, 0);
             }
         }
 
