@@ -56,7 +56,7 @@ void app_main(void)
         }
 
         // Small delay to prevent overwhelming the system
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(10000 / portTICK_PERIOD_MS));
     }
 
     // Cleanup (this won't be reached in this example)
