@@ -5,6 +5,8 @@
 #include "radar_sensor.h"
 
 static const char *TAG = "RADAR_WATCH";
+#define RELAY_CH_1 GPIO_NUM_9
+#define RELAY_CH_2 GPIO_NUM_10
 
 void app_main(void)
 {
@@ -28,7 +30,8 @@ void app_main(void)
     }
 
     ESP_LOGI(TAG, "Radar sensor initialized successfully");
-    gpio_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
+    gpio_set_direction(RELAY_CH_1, GPIO_MODE_OUTPUT);
+    gpio_set_direction(RELAY_CH_2, GPIO_MODE_OUTPUT);
     while (1)
     {
         // Update radar sensor
@@ -40,12 +43,15 @@ void app_main(void)
             {
                 ESP_LOGI(TAG, "Target detected - X: %.2f mm, Y: %.2f mm, Speed: %.2f cm/s, Distance: %.2f mm, Angle: %.2f°",
                          target.x, target.y, target.speed, target.distance, target.angle);
-                gpio_set_level(GPIO_NUM_1, 1);
+                gpio_set_level(RELAY_CH_1, 0);
+                gpio_set_level(RELAY_CH_2, 0);
             }
             else
             {
                 ESP_LOGI(TAG, "No target detected");
-                gpio_set_level(GPIO_NUM_1, 0);
+                gpio_set_level(RELAY_CH_1, 1);
+
+                gpio_set_level(RELAY_CH_2, 1);
             }
         }
 
