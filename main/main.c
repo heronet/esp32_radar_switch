@@ -5,6 +5,7 @@
 #include "radar_sensor.h"
 
 static const char *TAG = "RADAR_WATCH";
+
 #define RELAY_CH_1 GPIO_NUM_9
 #define RELAY_CH_2 GPIO_NUM_10
 
@@ -50,13 +51,12 @@ void app_main(void)
             {
                 ESP_LOGI(TAG, "No target detected");
                 gpio_set_level(RELAY_CH_1, 1);
-
                 gpio_set_level(RELAY_CH_2, 1);
             }
         }
 
         // Small delay to prevent overwhelming the system
-        vTaskDelay(pdMS_TO_TICKS(10000 / portTICK_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(10000));
     }
 
     // Cleanup (this won't be reached in this example)
