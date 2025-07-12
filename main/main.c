@@ -13,8 +13,8 @@ static const char* TAG = "RADAR_WATCH";
 #define RADAR_RX GPIO_NUM_3
 
 // Configuration - Update these with your credentials
-#define WIFI_SSID "CAMPHIGH"
-#define WIFI_PASSWORD "samcam69"
+#define WIFI_SSID "RS connection"
+#define WIFI_PASSWORD "301285211285"
 #define APPS_SCRIPT_URL                                                        \
   "https://script.google.com/macros/s/"                                        \
   "AKfycbwd8KMu5JVEsqry8rbqsiSqWbO00Sv6HHCZ6Zlpt5JRg5z4vsRBpr2WbvyK6jmqO4szfw" \
