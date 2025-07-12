@@ -6,4 +6,5 @@ idf_component_register(
         esp_common
         freertos
         radar_sensor
+        gsheet_client
 )
