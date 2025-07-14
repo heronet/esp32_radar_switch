@@ -122,9 +122,9 @@ esp_err_t gsheet_client_wifi_connect(gsheet_client_t* client) {
 
   /* Wait until either the connection is established (WIFI_CONNECTED_BIT) or
    * connection failed */
-  EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-                                         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-                                         pdFALSE, pdFALSE, portMAX_DELAY);
+  EventBits_t bits = xEventGroupWaitBits(
+      s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdFALSE, pdFALSE,
+      pdMS_TO_TICKS(30000));  // 30 second timeout
 
   if (bits & WIFI_CONNECTED_BIT) {
     ESP_LOGI(TAG, "Connected to AP SSID:%s", client->config.wifi_ssid);

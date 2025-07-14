@@ -7,14 +7,14 @@
 
 static const char* TAG = "RADAR_WATCH";
 
-#define RELAY_CH_1 GPIO_NUM_9
-#define RELAY_CH_2 GPIO_NUM_10
-#define RADAR_TX GPIO_NUM_2
-#define RADAR_RX GPIO_NUM_3
+#define RELAY_CH_1 GPIO_NUM_21
+#define RELAY_CH_2 GPIO_NUM_22
+#define RADAR_TX GPIO_NUM_16
+#define RADAR_RX GPIO_NUM_17
 
 // Configuration - Update these with your credentials
-#define WIFI_SSID "RS connection"
-#define WIFI_PASSWORD "301285211285"
+#define WIFI_SSID "SUST WiFi"
+#define WIFI_PASSWORD "SUST10s10"
 #define APPS_SCRIPT_URL                                                        \
   "https://script.google.com/macros/s/"                                        \
   "AKfycbwd8KMu5JVEsqry8rbqsiSqWbO00Sv6HHCZ6Zlpt5JRg5z4vsRBpr2WbvyK6jmqO4szfw" \
