@@ -69,6 +69,14 @@ esp_err_t gsheet_client_send_status(gsheet_client_t* client,
 bool gsheet_client_is_wifi_connected(gsheet_client_t* client);
 
 /**
+ * @brief Check actual WiFi connection status by verifying IP address
+ *
+ * @param client Pointer to gsheet_client_t structure
+ * @return true if WiFi is actually connected (has IP address), false otherwise
+ */
+bool gsheet_client_check_wifi_connection(gsheet_client_t* client);
+
+/**
  * @brief Deinitialize Google Sheets client
  *
  * @param client Pointer to gsheet_client_t structure
