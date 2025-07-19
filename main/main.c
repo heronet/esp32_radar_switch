@@ -22,7 +22,7 @@ static const char* TAG = "RADAR_WATCH";
   "AKfycbwd8KMu5JVEsqry8rbqsiSqWbO00Sv6HHCZ6Zlpt5JRg5z4vsRBpr2WbvyK6jmqO4szfw" \
   "/exec"
 
-#define WIFI_RECONNECT_INTERVAL_MS 30000  // 30 seconds
+#define WIFI_RECONNECT_INTERVAL_MS 5000  // 5 seconds
 #define STATUS_QUEUE_SIZE 10
 
 // Global variables
@@ -36,6 +36,22 @@ typedef struct {
   gsheet_status_t status;
   TickType_t timestamp;
 } status_message_t;
+
+// Helper function to update WiFi status safely
+static void update_wifi_status(bool connected) {
+  xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
+  wifi_connected = connected;
+  xSemaphoreGive(wifi_status_mutex);
+}
+
+// Helper function to get WiFi status safely
+static bool get_wifi_status(void) {
+  bool status;
+  xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
+  status = wifi_connected;
+  xSemaphoreGive(wifi_status_mutex);
+  return status;
+}
 
 // System monitoring task function (runs on Core 0)
 void system_monitor_task(void* pvParameters) {
@@ -51,10 +67,7 @@ void system_monitor_task(void* pvParameters) {
     UBaseType_t queue_spaces = uxQueueSpacesAvailable(status_queue);
 
     // Check WiFi status
-    bool current_wifi_status;
-    xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
-    current_wifi_status = wifi_connected;
-    xSemaphoreGive(wifi_status_mutex);
+    bool current_wifi_status = get_wifi_status();
 
     ESP_LOGI(TAG,
              "System Status - Free Heap: %d bytes, Min Free: %d bytes, Queue: "
@@ -90,16 +103,12 @@ void wifi_task(void* pvParameters) {
   ESP_LOGI(TAG, "Attempting initial WiFi connection...");
   ret = gsheet_client_wifi_connect(&gsheet_client);
   if (ret == ESP_OK) {
-    xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
-    wifi_connected = true;
-    xSemaphoreGive(wifi_status_mutex);
+    update_wifi_status(true);
     ESP_LOGI(TAG, "WiFi connected successfully");
   } else {
     ESP_LOGE(TAG,
              "Initial WiFi connection failed, will retry every 30 seconds");
-    xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
-    wifi_connected = false;
-    xSemaphoreGive(wifi_status_mutex);
+    update_wifi_status(false);
   }
 
   status_message_t status_msg;
@@ -109,13 +118,21 @@ void wifi_task(void* pvParameters) {
   bool wifi_init_done = (ret == ESP_OK);
 
   while (1) {
-    bool current_wifi_status;
     TickType_t current_time = xTaskGetTickCount();
 
-    // Get current WiFi status
-    xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
-    current_wifi_status = wifi_connected;
-    xSemaphoreGive(wifi_status_mutex);
+    // Check WiFi connection status from gsheet_client (more accurate)
+    bool gsheet_wifi_status = gsheet_client_is_wifi_connected(&gsheet_client);
+    bool current_wifi_status = get_wifi_status();
+
+    // Sync our status with gsheet_client status
+    if (gsheet_wifi_status != current_wifi_status) {
+      ESP_LOGI(
+          TAG,
+          "Syncing WiFi status: gsheet_client says %s, updating local status",
+          gsheet_wifi_status ? "Connected" : "Disconnected");
+      update_wifi_status(gsheet_wifi_status);
+      current_wifi_status = gsheet_wifi_status;
+    }
 
     // If WiFi is not connected, try to reconnect only every 30 seconds
     if (!current_wifi_status) {
@@ -124,11 +141,10 @@ void wifi_task(void* pvParameters) {
         ESP_LOGI(TAG, "Attempting WiFi reconnection...");
         ret = gsheet_client_wifi_connect(&gsheet_client);
 
-        xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
-        wifi_connected = (ret == ESP_OK);
-        xSemaphoreGive(wifi_status_mutex);
+        bool reconnection_success = (ret == ESP_OK);
+        update_wifi_status(reconnection_success);
 
-        if (ret == ESP_OK) {
+        if (reconnection_success) {
           ESP_LOGI(TAG, "WiFi reconnected successfully");
           wifi_init_done = true;
         } else {
@@ -189,6 +205,14 @@ void wifi_task(void* pvParameters) {
         // FIXED: Send if status has changed OR if this is the first message
         if (status_msg.status != last_sent_status ||
             last_sent_status == (gsheet_status_t)-1) {
+          // Double-check WiFi status right before sending
+          if (!gsheet_client_is_wifi_connected(&gsheet_client)) {
+            ESP_LOGW(TAG,
+                     "WiFi disconnected just before sending, updating status");
+            update_wifi_status(false);
+            continue;  // Skip this iteration and go back to reconnection logic
+          }
+
           ESP_LOGI(TAG, "Sending status to Google Sheets: %s",
                    (status_msg.status == GSHEET_STATUS_ON) ? "ON" : "OFF");
 
@@ -207,13 +231,12 @@ void wifi_task(void* pvParameters) {
                      esp_err_to_name(ret));
 
             // Check if this is a connection issue
-            if (ret == ESP_ERR_HTTP_CONNECT || ret == ESP_ERR_TIMEOUT) {
+            if (ret == ESP_ERR_HTTP_CONNECT || ret == ESP_ERR_TIMEOUT ||
+                ret == ESP_ERR_INVALID_STATE) {
               ESP_LOGW(
                   TAG,
                   "Connection issue detected, marking WiFi as disconnected");
-              xSemaphoreTake(wifi_status_mutex, portMAX_DELAY);
-              wifi_connected = false;
-              xSemaphoreGive(wifi_status_mutex);
+              update_wifi_status(false);
               last_wifi_attempt = xTaskGetTickCount() -
                                   pdMS_TO_TICKS(WIFI_RECONNECT_INTERVAL_MS);
             }
@@ -352,7 +375,7 @@ void app_main(void) {
 
   // Create system monitor task on Core 0 (monitors system health)
   BaseType_t monitor_task_created =
-      xTaskCreatePinnedToCore(system_monitor_task, "system_monitor", 2048, NULL,
+      xTaskCreatePinnedToCore(system_monitor_task, "system_monitor", 4096, NULL,
                               1,  // Low priority for monitoring
                               NULL,
                               0  // Pin to Core 0
@@ -366,12 +389,12 @@ void app_main(void) {
   }
 
   // Create WiFi task on Core 0 (handles network operations)
-  BaseType_t wifi_task_created =
-      xTaskCreatePinnedToCore(wifi_task, "wifi_task", 4096, NULL,
-                              5,  // Higher priority for WiFi task
-                              NULL,
-                              0  // Pin to Core 0
-      );
+  BaseType_t wifi_task_created = xTaskCreatePinnedToCore(
+      wifi_task, "wifi_task", 8192, NULL,  // Increased stack size
+      5,                                   // Higher priority for WiFi task
+      NULL,
+      0  // Pin to Core 0
+  );
 
   if (wifi_task_created != pdPASS) {
     ESP_LOGE(TAG, "Failed to create WiFi task");
