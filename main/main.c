@@ -25,6 +25,9 @@ static const char* TAG = "RADAR_WATCH";
 #define WIFI_RECONNECT_INTERVAL_MS 5000  // 5 seconds
 #define STATUS_QUEUE_SIZE 10
 
+#define TARGET_DETECTION_RETENTION 5000
+#define TARGET_ABSENCE_RETENTION 3000
+
 // Global variables
 static gsheet_client_t gsheet_client;
 static QueueHandle_t status_queue;
@@ -279,7 +282,16 @@ void sensor_task(void* pvParameters) {
     return;
   }
 
-  ESP_LOGI(TAG, "Radar sensor initialized successfully");
+  // Configure target retention (adjust these values as needed)
+  // Detection retention: how long to keep "detected" after losing target
+  // Absence retention: how long to wait before confirming "not detected"
+  radar_sensor_set_retention_times(&radar_sensor, TARGET_DETECTION_RETENTION,
+                                   TARGET_ABSENCE_RETENTION);
+
+  // Enable retention (you can disable this for immediate response)
+  radar_sensor_enable_retention(&radar_sensor, true);
+
+  ESP_LOGI(TAG, "Radar sensor initialized successfully with target retention");
 
   // Initialize GPIO for relays
   gpio_set_direction(RELAY_CH_1, GPIO_MODE_OUTPUT);
@@ -288,30 +300,68 @@ void sensor_task(void* pvParameters) {
   gpio_set_level(RELAY_CH_2, 1);  // Initially OFF (active low)
 
   ESP_LOGI(TAG,
-           "Sensor task ready - relays will switch regardless of WiFi status");
+           "Sensor task ready - relays will switch with retention filtering");
+
+  uint32_t log_counter = 0;
+  const uint32_t LOG_INTERVAL = 10;  // Log detailed info every 10 iterations
 
   while (1) {
     gsheet_status_t current_status = GSHEET_STATUS_OFF;
 
-    // Update radar sensor
-    if (radar_sensor_update(&radar_sensor)) {
+    // Update radar sensor (this also updates retention logic)
+    bool new_data = radar_sensor_update(&radar_sensor);
+
+    if (new_data || (log_counter % LOG_INTERVAL == 0)) {
+      // Get both filtered and raw targets for comparison
       radar_target_t target = radar_sensor_get_target(&radar_sensor);
+      radar_target_t raw_target = radar_sensor_get_raw_target(&radar_sensor);
 
       if (target.detected) {
-        ESP_LOGI(TAG,
-                 "Target detected - X: %.2f mm, Y: %.2f mm, Speed: %.2f cm/s, "
-                 "Distance: %.2f mm, Angle: %.2f°",
-                 target.x, target.y, target.speed, target.distance,
-                 target.angle);
+        if (new_data || (log_counter % LOG_INTERVAL == 0)) {
+          ESP_LOGI(TAG,
+                   "Target DETECTED (filtered) - X: %.2f mm, Y: %.2f mm, "
+                   "Speed: %.2f cm/s, "
+                   "Distance: %.2f mm, Angle: %.2f°",
+                   target.x, target.y, target.speed, target.distance,
+                   target.angle);
 
-        // Turn relays ON (active low) - THIS HAPPENS REGARDLESS OF WiFi STATUS
+          // Show retention status if different from raw
+          if (target.detected != raw_target.detected) {
+            ESP_LOGI(TAG, "  -> Retention active: raw=%s, filtered=%s",
+                     raw_target.detected ? "DETECTED" : "NOT_DETECTED",
+                     target.detected ? "DETECTED" : "NOT_DETECTED");
+          }
+        }
+
+        // Turn relays ON (active low)
         gpio_set_level(RELAY_CH_1, 0);
         gpio_set_level(RELAY_CH_2, 0);
         current_status = GSHEET_STATUS_ON;
       } else {
-        ESP_LOGI(TAG, "No target detected");
+        if (new_data || (log_counter % LOG_INTERVAL == 0)) {
+          ESP_LOGI(TAG, "No target detected (filtered)");
 
-        // Turn relays OFF (active low) - THIS HAPPENS REGARDLESS OF WiFi STATUS
+          // Show retention status if different from raw
+          if (target.detected != raw_target.detected) {
+            ESP_LOGI(TAG, "  -> Retention active: raw=%s, filtered=%s",
+                     raw_target.detected ? "DETECTED" : "NOT_DETECTED",
+                     target.detected ? "DETECTED" : "NOT_DETECTED");
+          }
+
+          // Show retention diagnostics
+          if (radar_sensor_is_retention_active(&radar_sensor)) {
+            uint32_t time_since_detection =
+                radar_sensor_get_time_since_last_detection(&radar_sensor);
+            uint32_t time_since_absence =
+                radar_sensor_get_time_since_last_absence(&radar_sensor);
+            ESP_LOGI(TAG,
+                     "  -> Retention timers: last_detection=%lu ms ago, "
+                     "last_absence=%lu ms ago",
+                     time_since_detection, time_since_absence);
+          }
+        }
+
+        // Turn relays OFF (active low)
         gpio_set_level(RELAY_CH_1, 1);
         gpio_set_level(RELAY_CH_2, 1);
         current_status = GSHEET_STATUS_OFF;
@@ -325,7 +375,7 @@ void sensor_task(void* pvParameters) {
 
       // Try to send to queue (non-blocking)
       if (xQueueSend(status_queue, &status_msg, 0) == pdTRUE) {
-        ESP_LOGI(TAG, "Status queued for upload: %s (relays already switched)",
+        ESP_LOGI(TAG, "Status queued for upload: %s (with retention filtering)",
                  (current_status == GSHEET_STATUS_ON) ? "ON" : "OFF");
       } else {
         ESP_LOGW(TAG,
@@ -334,6 +384,8 @@ void sensor_task(void* pvParameters) {
 
       last_status = current_status;
     }
+
+    log_counter++;
 
     // Run sensor task at 1Hz
     vTaskDelay(pdMS_TO_TICKS(1000));
