@@ -1,6 +1,8 @@
 #include "radar_sensor.h"
 #include "esp_log.h"
 
+#include <string.h>
+
 static const char* TAG = "RADAR_SENSOR";
 
 // Private function to update retention logic
@@ -27,6 +29,7 @@ esp_err_t radar_sensor_init(radar_sensor_t* sensor,
   sensor->target.speed = 0.0f;
   sensor->target.distance = 0.0f;
   sensor->target.angle = 0.0f;
+  strcpy(sensor->target.position_description, "No target");
 
   sensor->raw_target =
       sensor->target;  // Initialize raw target same as filtered
@@ -164,13 +167,11 @@ bool radar_sensor_parse_data(radar_sensor_t* sensor,
   sensor->raw_target.detected =
       !(raw_x == 0 && raw_y == 0 && raw_speed == 0 && raw_pixel_dist == 0);
 
-  // Parse signed values (fix the sign bit logic from original)
-  sensor->raw_target.x =
-      (raw_x & 0x8000) ? -(raw_x & 0x7FFF) : (raw_x & 0x7FFF);
-  sensor->raw_target.y =
-      (raw_y & 0x8000) ? -(raw_y & 0x7FFF) : (raw_y & 0x7FFF);
+  // Parse signed values
+  sensor->raw_target.x = ((raw_x & 0x8000) ? 1 : -1) * (raw_x & 0x7FFF);
+  sensor->raw_target.y = ((raw_y & 0x8000) ? 1 : -1) * (raw_y & 0x7FFF);
   sensor->raw_target.speed =
-      (raw_speed & 0x8000) ? -(raw_speed & 0x7FFF) : (raw_speed & 0x7FFF);
+      ((raw_speed & 0x8000) ? 1 : -1) * (raw_speed & 0x7FFF);
 
   if (sensor->raw_target.detected) {
     sensor->raw_target.distance =
@@ -183,9 +184,13 @@ bool radar_sensor_parse_data(radar_sensor_t* sensor,
     float angle_deg = angle_rad * (180.0f / M_PI);
     sensor->raw_target.angle =
         -angle_deg;  // align angle with x measurement positive/negative sign
+
+    // Update position description
+    radar_sensor_update_position_description(&sensor->raw_target);
   } else {
     sensor->raw_target.distance = 0.0f;
     sensor->raw_target.angle = 0.0f;
+    strcpy(sensor->raw_target.position_description, "No target");
   }
 
   // Update retention state
@@ -234,6 +239,7 @@ static void radar_sensor_update_retention(radar_sensor_t* sensor) {
         sensor->target.speed = 0.0f;
         sensor->target.distance = 0.0f;
         sensor->target.angle = 0.0f;
+        strcpy(sensor->target.position_description, "No target");
         state_changed = true;
 
         ESP_LOGI(TAG, "Target lost after %lu ms retention",
@@ -339,6 +345,7 @@ void radar_sensor_reset_retention(radar_sensor_t* sensor) {
     sensor->target.speed = 0.0f;
     sensor->target.distance = 0.0f;
     sensor->target.angle = 0.0f;
+    strcpy(sensor->target.position_description, "No target");
   }
 
   ESP_LOGI(TAG, "Retention state reset");
@@ -379,4 +386,108 @@ void radar_sensor_deinit(radar_sensor_t* sensor) {
     uart_driver_delete(sensor->uart_port);
     ESP_LOGI(TAG, "Radar sensor deinitialized");
   }
+}
+
+// Position description functions
+void radar_sensor_update_position_description(radar_target_t* target) {
+  if (!target || !target->detected) {
+    strcpy(target->position_description, "No target");
+    return;
+  }
+
+  float x = target->x;
+  float y = target->y;
+  float distance_m = target->distance / 1000.0f;  // Convert mm to meters
+
+  // Determine primary direction
+  const char* horizontal = "";
+  const char* vertical = "";
+  const char* distance_desc = "";
+
+  // Horizontal direction (X-axis)
+  if (abs((int)x) < 100) {
+    horizontal = "Center";
+  } else if (x > 0) {
+    if (x > 1000)
+      horizontal = "Far Left";
+    else if (x > 500)
+      horizontal = "Left";
+    else
+      horizontal = "Near Left";
+  } else {
+    if (x < -1000)
+      horizontal = "Far Right";
+    else if (x < -500)
+      horizontal = "Right";
+    else
+      horizontal = "Near Right";
+  }
+
+  // Vertical direction (Y-axis)
+  if (abs((int)y) < 100) {
+    vertical = "Center";
+  } else if (y > 0) {
+    if (y > 2000)
+      vertical = "Far Forward";
+    else if (y > 1000)
+      vertical = "Forward";
+    else
+      vertical = "Near Forward";
+  } else {
+    if (y < -2000)
+      vertical = "Far Behind";
+    else if (y < -1000)
+      vertical = "Behind";
+    else
+      vertical = "Near Behind";
+  }
+
+  // Distance description
+  if (distance_m < 0.5f) {
+    distance_desc = "Very Close";
+  } else if (distance_m < 1.0f) {
+    distance_desc = "Close";
+  } else if (distance_m < 2.0f) {
+    distance_desc = "Medium";
+  } else if (distance_m < 4.0f) {
+    distance_desc = "Far";
+  } else {
+    distance_desc = "Very Far";
+  }
+
+  // Create comprehensive description
+  if (strcmp(horizontal, "Center") == 0 && strcmp(vertical, "Center") == 0) {
+    snprintf(target->position_description, 64, "Directly at sensor (%.1fm)",
+             distance_m);
+  } else if (strcmp(horizontal, "Center") == 0) {
+    snprintf(target->position_description, 64, "%s - %s (%.1fm)", vertical,
+             distance_desc, distance_m);
+  } else if (strcmp(vertical, "Center") == 0) {
+    snprintf(target->position_description, 64, "%s - %s (%.1fm)", horizontal,
+             distance_desc, distance_m);
+  } else {
+    snprintf(target->position_description, 64, "%s %s - %s (%.1fm)", horizontal,
+             vertical, distance_desc, distance_m);
+  }
+}
+
+const char* radar_sensor_get_quadrant_name(float x, float y) {
+  if (x >= 0 && y >= 0)
+    return "Front-Right (Q1)";
+  if (x < 0 && y >= 0)
+    return "Front-Left (Q2)";
+  if (x < 0 && y < 0)
+    return "Back-Left (Q3)";
+  if (x >= 0 && y < 0)
+    return "Back-Right (Q4)";
+  return "Unknown";
+}
+
+const char* radar_sensor_get_direction_description(float x,
+                                                   float y,
+                                                   float distance) {
+  static char desc[32];
+  const char* quadrant = radar_sensor_get_quadrant_name(x, y);
+  snprintf(desc, 32, "%s (%.1fm)", quadrant, distance / 1000.0f);
+  return desc;
 }

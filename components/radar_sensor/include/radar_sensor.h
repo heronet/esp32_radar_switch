@@ -24,6 +24,7 @@ typedef struct {
   float speed;
   float distance;
   float angle;
+  char position_description[64];  // Human-readable position description
 } radar_target_t;
 
 typedef enum {
@@ -78,6 +79,13 @@ void radar_sensor_set_retention_times(radar_sensor_t* sensor,
                                       uint32_t absence_retention_ms);
 void radar_sensor_enable_retention(radar_sensor_t* sensor, bool enable);
 void radar_sensor_reset_retention(radar_sensor_t* sensor);
+
+// Position description functions
+void radar_sensor_update_position_description(radar_target_t* target);
+const char* radar_sensor_get_quadrant_name(float x, float y);
+const char* radar_sensor_get_direction_description(float x,
+                                                   float y,
+                                                   float distance);
 
 // Diagnostic functions
 bool radar_sensor_is_retention_active(radar_sensor_t* sensor);

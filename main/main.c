@@ -115,7 +115,7 @@ void wifi_task(void* pvParameters) {
   }
 
   status_message_t status_msg;
-  // FIXED: Initialize to invalid state so first message always gets sent
+  // Initialize to invalid state so first message always gets sent
   gsheet_status_t last_sent_status = (gsheet_status_t)-1;  // Invalid state
   TickType_t last_wifi_attempt = xTaskGetTickCount();
   bool wifi_init_done = (ret == ESP_OK);
@@ -205,7 +205,7 @@ void wifi_task(void* pvParameters) {
                  : (last_sent_status == GSHEET_STATUS_OFF) ? "OFF"
                                                            : "NONE");
 
-        // FIXED: Send if status has changed OR if this is the first message
+        // Send if status has changed OR if this is the first message
         if (status_msg.status != last_sent_status ||
             last_sent_status == (gsheet_status_t)-1) {
           // Double-check WiFi status right before sending
@@ -318,18 +318,27 @@ void sensor_task(void* pvParameters) {
 
       if (target.detected) {
         if (new_data || (log_counter % LOG_INTERVAL == 0)) {
+          ESP_LOGI(TAG, "🎯 TARGET DETECTED: %s", target.position_description);
           ESP_LOGI(TAG,
-                   "Target DETECTED (filtered) - X: %.2f mm, Y: %.2f mm, "
-                   "Speed: %.2f cm/s, "
-                   "Distance: %.2f mm, Angle: %.2f°",
-                   target.x, target.y, target.speed, target.distance,
-                   target.angle);
+                   "   📍 Position: X=%.0fmm, Y=%.0fmm | Distance=%.1fm | "
+                   "Angle=%.1f° | Speed=%.1fcm/s",
+                   target.x, target.y, target.distance / 1000.0f, target.angle,
+                   target.speed);
 
           // Show retention status if different from raw
           if (target.detected != raw_target.detected) {
-            ESP_LOGI(TAG, "  -> Retention active: raw=%s, filtered=%s",
+            ESP_LOGI(TAG, "   ⏱️  Retention active: raw=%s, filtered=%s",
                      raw_target.detected ? "DETECTED" : "NOT_DETECTED",
                      target.detected ? "DETECTED" : "NOT_DETECTED");
+            ESP_LOGI(TAG, "   📡 Raw position: %s",
+                     raw_target.position_description);
+          }
+
+          // Warn about rear detection
+          if (target.y < -500) {  // More than 0.5m behind
+            ESP_LOGW(TAG,
+                     "   ⚠️  WARNING: Target detected BEHIND radar! Check "
+                     "mounting or add rear shield.");
           }
         }
 
@@ -339,13 +348,17 @@ void sensor_task(void* pvParameters) {
         current_status = GSHEET_STATUS_ON;
       } else {
         if (new_data || (log_counter % LOG_INTERVAL == 0)) {
-          ESP_LOGI(TAG, "No target detected (filtered)");
+          ESP_LOGI(TAG, "❌ NO TARGET DETECTED");
 
           // Show retention status if different from raw
           if (target.detected != raw_target.detected) {
-            ESP_LOGI(TAG, "  -> Retention active: raw=%s, filtered=%s",
+            ESP_LOGI(TAG, "   ⏱️  Retention active: raw=%s, filtered=%s",
                      raw_target.detected ? "DETECTED" : "NOT_DETECTED",
                      target.detected ? "DETECTED" : "NOT_DETECTED");
+            if (raw_target.detected) {
+              ESP_LOGI(TAG, "   📡 Raw target: %s",
+                       raw_target.position_description);
+            }
           }
 
           // Show retention diagnostics
@@ -355,8 +368,8 @@ void sensor_task(void* pvParameters) {
             uint32_t time_since_absence =
                 radar_sensor_get_time_since_last_absence(&radar_sensor);
             ESP_LOGI(TAG,
-                     "  -> Retention timers: last_detection=%lu ms ago, "
-                     "last_absence=%lu ms ago",
+                     "   ⏲️  Retention timers: detection=%lums ago, "
+                     "absence=%lums ago",
                      time_since_detection, time_since_absence);
           }
         }
@@ -375,11 +388,13 @@ void sensor_task(void* pvParameters) {
 
       // Try to send to queue (non-blocking)
       if (xQueueSend(status_queue, &status_msg, 0) == pdTRUE) {
-        ESP_LOGI(TAG, "Status queued for upload: %s (with retention filtering)",
+        ESP_LOGI(TAG,
+                 "📤 Status queued for upload: %s (with retention filtering)",
                  (current_status == GSHEET_STATUS_ON) ? "ON" : "OFF");
       } else {
-        ESP_LOGW(TAG,
-                 "Status queue full, dropping message (relays still switched)");
+        ESP_LOGW(
+            TAG,
+            "📦 Status queue full, dropping message (relays still switched)");
       }
 
       last_status = current_status;
